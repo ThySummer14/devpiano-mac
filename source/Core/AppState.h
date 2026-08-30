@@ -1,0 +1,77 @@
+#pragma once
+
+#include "../Midi/ChannelMatrix.h"
+#include "../Settings/SettingsModel.h"
+#include "Core/KeyMapTypes.h"
+#include <juce_core/juce_core.h>
+
+namespace devpiano::core {
+// Runtime aggregate state.
+//
+// 职责边界：
+// - 表示“当前这一轮运行里，对 UI / 引擎 / 控制逻辑有意义的聚合快照”
+// - 可以同时包含 persisted settings 派生出的基线值，以及运行时覆盖值
+// - 本身不直接负责落盘；落盘基线请回到 SettingsModel
+//
+// 典型 runtime 内容：
+// - 当前已加载插件、prepared 状态、editor 状态
+// - 当前 MIDI 输入活动、最后一条消息
+// - 当前布局对象、运行时设备状态快照
+struct AudioState {
+    // Snapshot values used by UI / runtime logic.
+    double sampleRate = 44100.0;
+    int bufferSize = 512;
+    bool hasSerializedDeviceState = false;
+    bool hasLiveDevice = false;
+    juce::String backendName;
+    juce::String deviceName;
+    juce::String availableBufferSizesText;
+    juce::String restoreOutcome;
+    juce::String mismatchReasons;
+};
+
+struct PerformanceState {
+    float masterGain = 1.0f;
+    float adsrAttack = 0.01f;
+    float adsrDecay = 0.20f;
+    float adsrSustain = 0.80f;
+    float adsrRelease = 0.30f;
+    SettingsModel::BuiltinTone builtinTone = SettingsModel::BuiltinTone::piano;
+    float pianoBrightness = 0.50f;
+    float pianoHammerHardness = 0.50f;
+    float pianoResonance = 0.50f;
+};
+
+struct PluginState {
+    // Mix of persisted recovery fields + runtime plugin host fields.
+    juce::String searchPath;
+    juce::String lastPluginName;
+    juce::String currentPluginName;
+    juce::StringArray availablePluginNames;
+    juce::String lastScanSummary;
+    int scanPluginCount = 0;
+    int scanFailedCount = 0;
+    juce::String lastLoadError;
+    double preparedSampleRate = 0.0;
+    int preparedBlockSize = 0;
+    bool supportsVst3 = false;
+    bool hasLoadedPlugin = false;
+    bool isPrepared = false;
+    bool isEditorOpen = false;
+};
+
+struct InputState {
+    KeyboardLayout keyboardLayout = makeDefaultKeyboardLayout();
+};
+
+struct AppState {
+    AudioState audio;
+    PerformanceState performance;
+    PluginState plugin;
+    InputState input;
+    // Key signature system: global transpose state
+    bool midiTranspose = false;
+    int keySignature = 0; // semitone offset from C, -7..+7
+    devpiano::midi::ChannelMatrix midiChannelMatrix;
+};
+}

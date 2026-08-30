@@ -1,0 +1,63 @@
+# Normalize text files to LF in the repository
+* text=auto eol=lf
+
+# C / C++ sources and headers
+*.c    text eol=lf
+*.cc   text eol=lf
+*.cpp  text eol=lf
+*.cxx  text eol=lf
+*.h    text eol=lf
+*.hh   text eol=lf
+*.hpp  text eol=lf
+*.hxx  text eol=lf
+*.inl  text eol=lf
+
+# Build system and project files
+CMakeLists.txt text eol=lf
+*.cmake        text eol=lf
+*.ninja        text eol=lf
+*.props        text eol=lf
+*.targets      text eol=lf
+*.vcxproj      text eol=lf
+*.vcxproj.filters text eol=lf
+*.sln          text eol=crlf
+
+# Documentation and config
+*.md    text eol=lf
+*.txt   text eol=lf
+*.json  text eol=lf
+*.xml   text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.toml  text eol=lf
+*.clangd text eol=lf
+.gitignore text eol=lf
+.gitmodules text eol=lf
+.gitattributes text eol=lf
+
+# Scripts
+*.sh    text eol=lf
+*.py    text eol=lf
+*.ps1   text eol=lf
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+
+# Binary assets and artifacts
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.webp  binary
+*.ico   binary
+*.bmp   binary
+*.wav   binary
+*.mp3   binary
+*.ogg   binary
+*.flac  binary
+*.zip   binary
+*.7z    binary
+*.dll   binary
+*.exe   binary
+*.lib   binary
+*.obj   binary
+*.pdb   binary

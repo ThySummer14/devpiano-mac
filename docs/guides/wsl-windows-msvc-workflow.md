@@ -1,0 +1,208 @@
+# devpiano: WSL 主工作树 + Windows 镜像树 + MSVC 验证工作流
+
+> 用途：说明 WSL 主工作树 + Windows 镜像树 + MSVC 验证的完整工作流与工具链。
+> 更新时机：工作流步骤、同步工具或验证流程变化时。
+
+> 如需更短的恢复说明，请优先看：[`quickstart.md`](quickstart.md)
+
+## 目标
+
+- **WSL 工作树**：唯一主源码来源，负责日常编辑、grep/rg、脚本、clangd/LSP。
+- **Windows 镜像树**：只用于同步后的 MSVC 构建验证。
+- **构建目录隔离**：
+  - WSL Debug：`build-wsl-clang`
+  - WSL Release：`build-wsl-clang-release`
+  - Windows Debug：`build-win-msvc`
+  - Windows Release：`build-win-msvc-release`
+- **默认同步方向**：WSL -> Windows
+- **不同步内容**：`.git`、IDE 私有缓存、构建目录、CMake 缓存、MSVC 中间产物/二进制产物。
+  具体排除的目录和文件由 `tools/sync-to-win.ps1` 中的 `$excludeDirPaths` 和 `$excludeFiles` 控制，当前包括：
+
+  **排除的目录（源端 + 镜像端）**
+  - `.git`、`.vs`、`.idea`、`.vscode`
+  - `build`、`build-*`、`out`、`bin`、`obj`、`CMakeFiles`
+  - `.cache`、`__pycache__`
+  - 镜像端：`build-win-msvc`、`build-win-msvc-release`
+
+  **排除的文件**
+  - `CMakeCache.txt`、`compile_commands.json`
+  - `*.suo`、`*.user`、`*.userosscache`、`*.rsuser`、`*.vcxproj.user`
+  - `*.VC.db`、`*.VC.opendb`、`*.opendb`、`*.opensdf`、`*.sdf`、`*.ipch`
+  - `*.db-shm`、`*.db-wal`、`*.db-journal`（SQLite WAL 模式文件，Browse.VC.db、CopilotIndices 等会生成）
+  - `*.obj`、`*.iobj`、`*.pch`、`*.pdb`、`*.ilk`、`*.idb`、`*.exp`、`*.lib`、`*.dll`、`*.exe`
+  - `*.a`、`*.so`、`*.dylib`、`*.app`、`*.out`、`*.o`、`*.lo`、`*.la`
+  - `*.cache`、`*.tmp`、`*.log`、`*.binlog`
+
+  > **注意**：IDE 状态目录（`.vs`、`.idea`、`.vscode`）在源端和镜像端**双方**都会被排除——这确保 robocopy `/MIR` 不会把镜像端 Windows 本地 IDE 生成的工作文件误认为"多余"而删除它。
+
+## 目录/脚本
+
+- `scripts/configure_wsl.sh`：在 WSL 中执行 CMake configure
+- `scripts/build_wsl.sh`：在 WSL 中执行 configure + build
+- `scripts/sync_to_win.sh`：从 WSL 调用 Windows PowerShell + robocopy，同步到 Windows 镜像树
+- `scripts/build_msvc_from_wsl.sh`：从 WSL 触发"同步 + Windows MSVC 验证构建"
+- `scripts/dev.sh`：统一入口，便于从一个命令分发 WSL 构建 / Windows 同步 / Windows 验证
+- [`quickstart.md`](quickstart.md)：快速恢复环境与常用命令速查
+- `tools/sync-to-win.ps1`：Windows 侧 robocopy 同步脚本（保留镜像树下的 `build-win-msvc`，避免每次同步清空 Windows 构建缓存）
+- `tools/build-windows.ps1`：Windows 侧 Developer PowerShell for VS + CMake + Ninja 构建脚本
+
+## CMake Presets
+
+| Preset | 生成目录 | 用途 |
+|---|---|---|
+| `linux-clang-debug` | `build-wsl-clang` | WSL 日常开发（默认），`CMAKE_EXPORT_COMPILE_COMMANDS=ON` |
+| `linux-clang-release` | `build-wsl-clang-release` | WSL Release 构建，`CMAKE_EXPORT_COMPILE_COMMANDS=ON` |
+| `windows-msvc-debug` | `build-win-msvc` | Windows MSVC 验证（默认） |
+| `windows-msvc-release` | `build-win-msvc-release` | Windows MSVC Release 验证 |
+
+## 环境变量
+
+推荐在 WSL shell 中设置：
+
+```bash
+export WIN_MIRROR_DIR='G:\source\projects\devpiano'
+# 如果自动探测不到 Visual Studio 安装，可额外在 Windows 环境变量中设置：
+# VS_DEVCMD_PATH=C:\Program Files\Microsoft Visual Studio\2026\...\Common7\Tools\VsDevCmd.bat
+```
+
+如果未设置 `WIN_MIRROR_DIR`，脚本会使用示例默认值：`G:\source\projects\devpiano`。
+
+## 推荐日常命令速查表
+
+```bash
+# ── WSL Debug（默认） ──
+./scripts/dev.sh wsl-build --configure-only   # 仅刷新 compile_commands.json
+./scripts/dev.sh wsl-build                    # 正常构建
+
+# ── WSL Release ──
+./scripts/dev.sh wsl-build --release --configure-only
+./scripts/dev.sh wsl-build --release
+
+# ── Windows MSVC Debug（默认） ──
+./scripts/dev.sh win-build                    # 正常验证（内置快速智能同步）
+./scripts/dev.sh win-build --full             # 强制全量同步并验证构建
+./scripts/dev.sh win-build --no-sync          # 镜像已最新时跳过同步
+./scripts/dev.sh win-build --reconfigure      # 强制重新配置
+./scripts/dev.sh win-build --clean-win-build  # 清空构建树后重建
+# ── Windows MSVC Release ──
+./scripts/dev.sh win-build --release
+./scripts/dev.sh win-build --release --no-sync
+./scripts/dev.sh win-build --release --reconfigure
+./scripts/dev.sh win-build --release --clean-win-build
+
+# ── 同步 ──
+./scripts/dev.sh win-sync --check  # 零写入预览
+./scripts/dev.sh win-sync          # 快速智能同步（日常业务代码，< 1s）
+./scripts/dev.sh win-sync --full   # 强制全量同步（含 submodules，~9s）
+
+## 日常命令（WSL）
+
+### 1. 配置 Linux/WSL 构建
+
+```bash
+./scripts/configure_wsl.sh
+```
+
+### 2. 在 WSL 中构建
+
+```bash
+./scripts/build_wsl.sh
+# 或
+./scripts/dev.sh wsl-build
+```
+
+常用选项：
+
+```bash
+# 只执行 configure，不编译
+./scripts/build_wsl.sh --configure-only
+
+# 删除 WSL CMakeCache.txt / CMakeFiles 后重新 configure/build
+./scripts/build_wsl.sh --reconfigure
+
+# 清空整个 WSL 构建目录后重建
+./scripts/build_wsl.sh --clean
+
+# 使用 Release preset（构建目录：build-wsl-clang-release）
+./scripts/build_wsl.sh --release
+./scripts/build_wsl.sh --release --configure-only
+```
+
+### 3. 仅同步到 Windows 镜像树
+
+```bash
+./scripts/sync_to_win.sh
+# 或
+./scripts/dev.sh win-sync
+
+# 强制全量同步（包含 submodules 下全部文件，约 9 秒）
+./scripts/sync_to_win.sh --full
+./scripts/dev.sh win-sync --full
+
+# 预览模式：不复制/不删除任何文件，仅列出待同步变更（零写入）
+./scripts/sync_to_win.sh --check
+./scripts/dev.sh win-sync --check
+
+### 4. 触发 Windows MSVC 验证构建
+
+```bash
+./scripts/build_msvc_from_wsl.sh
+# 或
+./scripts/dev.sh win-build
+```
+
+常用选项：
+
+```bash
+# 跳过同步，直接使用当前镜像树构建
+./scripts/build_msvc_from_wsl.sh --no-sync
+
+# 强制全量同步（含 submodules）后构建
+./scripts/build_msvc_from_wsl.sh --full
+# 只做同步，不触发 Windows 构建
+./scripts/build_msvc_from_wsl.sh --sync-only
+
+# 重新执行 Windows configure（删除 CMakeCache.txt / CMakeFiles）
+./scripts/build_msvc_from_wsl.sh --reconfigure
+
+# 清空整个 Windows 构建目录后重建
+./scripts/build_msvc_from_wsl.sh --clean-win-build
+
+# 使用 Release preset（构建目录：build-win-msvc-release）
+./scripts/build_msvc_from_wsl.sh --release
+./scripts/build_msvc_from_wsl.sh --release --no-sync
+```
+
+## Windows 侧要求
+
+1. 已安装 Visual Studio 2026（含 MSVC 工具链）
+2. 已安装 CMake
+3. 已安装 Ninja，并能在 Developer PowerShell for VS 环境中使用
+4. `vswhere.exe` 可用，或手动设置 `VS_DEVCMD_PATH`
+5. `WIN_MIRROR_DIR` 指向一个普通 Windows 目录，而不是 WSL 源码目录
+
+## 建议
+
+- 始终在 **WSL 主工作树**中编辑源码。
+- 不要让 Windows 的 IDE / MSVC 长期直接跨边界读取 WSL 源码树进行构建。
+- 不要把 Windows 镜像树下的 `build-win-msvc` 作为日常搜索、索引或上下文重点目录。
+- 如果修改了 CMake 或工具链相关内容，先执行：
+
+```bash
+./scripts/build_wsl.sh
+./scripts/build_msvc_from_wsl.sh
+```
+
+## 说明
+
+当前脚本默认通过 Windows PowerShell / PowerShell 7 从 WSL 触发 Windows 侧同步与构建；同步使用 `robocopy`，并显式保留镜像树下的 `build-win-msvc` 和 `build-win-msvc-release`，请确保 `WIN_MIRROR_DIR` 指向的是**专门用于镜像的目录**。
+
+主要 WSL 脚本已带统一日志前缀与颜色输出；如需关闭颜色，可设置 `NO_COLOR=1`。
+
+`scripts/build_wsl.sh` 支持：`--release`、`--configure-only`、`--reconfigure`、`--clean`。
+
+`scripts/build_msvc_from_wsl.sh` 支持：`--release`、`--no-sync`、`--sync-only`、`--reconfigure`、`--clean-win-build`，用于更细粒度地控制 Windows 侧验证流程。
+
+`scripts/dev.sh` 提供统一入口：`wsl-configure`、`wsl-build`、`win-sync`、`win-build`，所有子命令均支持 `--release` 参数切换到 Release 构建。
+
+`scripts/sync_to_win.sh` / `scripts/dev.sh win-sync` 支持 `--check` 参数，以 `robocopy /L` 零写入模式列出待同步变更，不实际复制或删除任何文件。

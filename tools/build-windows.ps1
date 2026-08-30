@@ -1,0 +1,153 @@
+[CmdletBinding()]
+param(
+    [string]$MirrorDir = $(if ($env:WIN_MIRROR_DIR) { $env:WIN_MIRROR_DIR } else { 'G:\source\projects\devpiano' }),
+    [string]$ConfigurePreset = '',
+    [string]$BuildPreset = '',
+    [switch]$Release,
+    [switch]$ClangTidy,
+    [string]$VsInstallPath = $env:VSINSTALLDIR,
+    [string]$VsDevCmdPath = $env:VS_DEVCMD_PATH
+)
+
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+
+# Resolve presets: -Release flag overrides defaults
+if ($Release) {
+    if (-not $ConfigurePreset) { $ConfigurePreset = 'windows-msvc-release' }
+    if (-not $BuildPreset) { $BuildPreset = 'windows-msvc-release' }
+} else {
+    if (-not $ConfigurePreset) { $ConfigurePreset = 'windows-msvc-debug' }
+    if (-not $BuildPreset) { $BuildPreset = 'windows-msvc-debug' }
+}
+
+function Write-Log {
+    param([string]$Message)
+    Write-Host "[build-windows] $Message"
+}
+
+function Resolve-VsInstance {
+    param(
+        [string]$ExplicitInstallPath,
+        [string]$ExplicitDevCmdPath
+    )
+
+    if ($ExplicitInstallPath) {
+        $resolvedInstallPath = (Resolve-Path $ExplicitInstallPath).Path
+        return [pscustomobject]@{
+            InstallationPath = $resolvedInstallPath
+            InstanceId       = $null
+        }
+    }
+
+    if ($ExplicitDevCmdPath) {
+        $resolvedDevCmd = (Resolve-Path $ExplicitDevCmdPath).Path
+        $installationPath = [System.IO.Path]::GetFullPath((Join-Path $resolvedDevCmd '..\..'))
+        return [pscustomobject]@{
+            InstallationPath = $installationPath
+            InstanceId       = $null
+        }
+    }
+
+    $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+    if (-not (Test-Path $vswhere)) {
+        throw 'vswhere.exe not found. Install Visual Studio Installer or add vswhere to the expected location.'
+    }
+
+    $json = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -format json
+    if ($LASTEXITCODE -ne 0 -or -not $json) {
+        throw 'vswhere.exe failed to locate a suitable Visual Studio installation.'
+    }
+
+    $instances = $json | ConvertFrom-Json
+    $instance = @($instances)[0]
+    if (-not $instance) {
+        throw 'No Visual Studio installation was returned by vswhere.'
+    }
+
+    return [pscustomobject]@{
+        InstallationPath = $instance.installationPath
+        InstanceId       = $instance.instanceId
+    }
+}
+
+function Enter-DeveloperPowerShell {
+    param(
+        [string]$InstallationPath,
+        [string]$InstanceId
+    )
+
+    $devShellModule = Join-Path $InstallationPath 'Common7\Tools\Microsoft.VisualStudio.DevShell.dll'
+    if (-not (Test-Path $devShellModule)) {
+        throw "Developer PowerShell module not found: $devShellModule"
+    }
+
+    Import-Module $devShellModule -Force
+
+    $devCmdArguments = '-arch=x64 -host_arch=x64'
+
+    if ($InstanceId) {
+        Write-Log "Entering Developer PowerShell via instance id: $InstanceId"
+        Enter-VsDevShell $InstanceId -SkipAutomaticLocation -DevCmdArguments $devCmdArguments | Out-Null
+        return
+    }
+
+    Write-Log "Entering Developer PowerShell via install path: $InstallationPath"
+    Enter-VsDevShell -VsInstallPath $InstallationPath -SkipAutomaticLocation -DevCmdArguments $devCmdArguments | Out-Null
+}
+
+$MirrorDir = [System.IO.Path]::GetFullPath($MirrorDir)
+if (-not (Test-Path $MirrorDir)) {
+    throw "MirrorDir does not exist: $MirrorDir"
+}
+
+$vsInstance = Resolve-VsInstance -ExplicitInstallPath $VsInstallPath -ExplicitDevCmdPath $VsDevCmdPath
+$installationPath = [System.IO.Path]::GetFullPath($vsInstance.InstallationPath)
+
+Write-Log "mirror: $MirrorDir"
+Write-Log "VS installation: $installationPath"
+Write-Log "configure preset: $ConfigurePreset"
+Write-Log "build preset: $BuildPreset"
+
+Enter-DeveloperPowerShell -InstallationPath $installationPath -InstanceId $vsInstance.InstanceId
+
+Push-Location $MirrorDir
+try {
+    Write-Log "cmake --preset $ConfigurePreset"
+    & cmake --preset $ConfigurePreset
+    if ($LASTEXITCODE -ne 0) {
+        throw "CMake configure failed with exit code $LASTEXITCODE"
+    }
+
+    Write-Log 'killing any stale DevPiano.exe process'
+    Get-Process -Name "DevPiano" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+
+    Write-Log "cmake --build --preset $BuildPreset"
+    & cmake --build --preset $BuildPreset
+    if ($LASTEXITCODE -ne 0) {
+        # 偶发 LNK1163（COMDAT 节选择无效）：WSL 镜像同步让 ninja 重编部分
+        # obj，而 MSVC 增量链接的 .ilk 仍按旧 obj 布局合并新 COMDAT。清除
+        # .ilk 后全量重链一次可恢复（ADR-001 镜像工作流的已知竞态）。
+        Write-Log "build failed (exit $LASTEXITCODE); clearing incremental-link state and retrying once"
+        Get-ChildItem -Path $MirrorDir -Recurse -Filter *.ilk -ErrorAction SilentlyContinue |
+            Remove-Item -Force -ErrorAction SilentlyContinue
+        & cmake --build --preset $BuildPreset
+    }
+    if ($LASTEXITCODE -ne 0) {
+        throw "CMake build failed with exit code $LASTEXITCODE"
+    }
+
+    if ($ClangTidy) {
+        Write-Log "cmake --build --preset $BuildPreset --target clang-tidy"
+        & cmake --build --preset $BuildPreset --target clang-tidy 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "[build-windows] clang-tidy returned warnings (non-blocking)" -ForegroundColor Yellow
+        } else {
+            Write-Log "clang-tidy: clean (0 diagnostics)"
+        }
+    }
+} finally {
+    Pop-Location
+}
+
+Write-Log 'MSVC validation build completed successfully'

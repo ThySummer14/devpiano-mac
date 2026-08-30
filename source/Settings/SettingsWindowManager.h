@@ -1,0 +1,49 @@
+#pragma once
+
+#include <functional>
+#include <juce_audio_devices/juce_audio_devices.h>
+#include <juce_core/juce_core.h>
+#include <juce_gui_basics/juce_gui_basics.h>
+#include <memory>
+
+#include "Settings/SettingsModel.h"
+
+class MainComponent;
+class SettingsComponent;
+
+namespace devpiano::settings {
+
+class SettingsWindowManager final {
+public:
+    struct ShowOptions {
+        juce::Component& parent;
+        juce::AudioDeviceManager& deviceManager;
+        const juce::XmlElement* savedAudioDeviceState = nullptr;
+        SettingsModel* displaySettingsModel = nullptr;
+        std::function<void()> onSaveRequested;
+        std::function<void()> onClosed;
+        std::function<void()> onDisplaySettingsChanged;
+        std::function<void(const juce::String&)> onLanguageChanged;
+    };
+
+    SettingsWindowManager();
+    ~SettingsWindowManager();
+
+    void show(ShowOptions options);
+    [[nodiscard]] bool isDirty() const;
+    [[nodiscard]] bool isOpen() const;
+    void close();
+    void closeAsync();
+    void saveAndClose();
+    void showFor(MainComponent& owner);
+
+private:
+    struct State;
+    std::shared_ptr<State> state;
+
+    [[nodiscard]] SettingsComponent* getSettingsContent() const;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SettingsWindowManager)
+};
+
+} // namespace devpiano::settings

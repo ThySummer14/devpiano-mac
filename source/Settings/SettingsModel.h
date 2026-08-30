@@ -6,6 +6,12 @@
 #include <juce_core/juce_core.h>
 #include <juce_graphics/juce_graphics.h>
 
+// 首次运行（无持久化值时）的默认 UI 语言：跟随系统语言，中文系统返回
+// "zh-CN"，其余回退 "en"。用户在设置中切换后会持久化，不再走此默认。
+[[nodiscard]] inline juce::String defaultUiLanguageCode() {
+    return juce::SystemStats::getDisplayLanguage().startsWith("zh") ? "zh-CN" : "en";
+}
+
 // Persisted settings model.
 //
 // 职责边界：
@@ -96,8 +102,8 @@ struct SettingsModel {
     // one declaration of the defaults, no parallel flat fields to drift).
     KeyboardDisplaySettingsView keyboardDisplay;
     bool pluginPanelExpanded = false; // persisted PluginPanel collapsed/expanded toggle
-    // Persisted UI language code ("en" | "zh-CN").
-    juce::String languageCode { "en" };
+    // Persisted UI language code ("en" | "zh-CN"). 首次运行跟随系统语言。
+    juce::String languageCode { defaultUiLanguageCode() };
     // Key signature system: global transpose state
     bool midiTranspose = false;
     int keySignature = 0; // semitone offset from C, -7..+7

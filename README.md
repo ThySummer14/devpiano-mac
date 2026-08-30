@@ -46,12 +46,20 @@ git submodule update --init --recursive
 空格 = 延音踏板（CC64）    F1-F12 = 切换演奏预设
 ```
 
+### 界面语言（中/英）
+
+- **首次启动跟随 macOS 系统语言**：中文系统自动进入简体中文界面，其余默认英文；
+- **随时在设置里切换**：打开「设置（Settings）」窗口 → 「Language:」下拉框 → `English` / `简体中文`，即时生效并记住选择；
+- 中文语言包随 App 二进制内嵌（`zh_CN.loc`，211+ 词条），无需外部文件。
+
 ### macOS 移植说明（相对上游的改动）
 
 | 改动 | 原因 |
 | --- | --- |
 | `CMakeLists.txt`：APPLE 平台跳过 PCH | CMake 的 PCH 以纯 C++ 模式生成，套用到 JUCE 的 `.mm`（Objective-C++）翻译单元报错 |
 | JUCE 子模块固定 8.0.15 | 上游 `develop` 已推进到 JUCE 9，与 JIVE 不兼容 |
+| 默认 UI 语言跟随系统语言（`SettingsModel.h`） | 上游写死 `"en"`；本仓库首次启动按 `SystemStats::getDisplayLanguage()` 选择中文/英文，设置中仍可切换 |
+| 补全 zh_CN 语言包缺失词条（5 条） | 对照全部 `TRANS()` 字符串查漏：无音频设备 / 移调 / 预设保存删除重命名提示 |
 | 新增 `macos-clang-release/debug` CMake Preset | 与 Windows/Linux Preset 对等的 macOS 入口 |
 | 新增 `scripts/build_macos.sh` | 一键环境自检 + 构建 + 启动 |
 

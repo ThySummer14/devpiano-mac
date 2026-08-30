@@ -2,6 +2,11 @@
 
 ### Added
 
+- **默认 UI 语言跟随系统语言**（`SettingsModel::defaultUiLanguageCode()`）— 首次启动按 `juce::SystemStats::getDisplayLanguage()` 自动选择简体中文/英文；设置窗口「Language:」下拉框仍可随时切换并持久化。设置界面切换能力沿用上游运行时 i18n（内嵌 `zh_CN.loc` + JUCE `LocalisedStrings`）。
+- **zh_CN 语言包补全 5 条缺失词条** — 对照源码全部 `TRANS()` 字符串（168 条）查漏：「无音频设备」「移调：开」与预设保存/删除/重命名状态栏提示，实现语言包 100% 覆盖。
+
+### Added
+
 - **macOS (Apple Silicon) 原生支持** — 全量源码在 macOS/arm64 + Apple Clang 下编译通过并实测运行，CoreAudio 输出与 VST3 插件扫描均正常：
   - 新增 `macos-clang-release` / `macos-clang-debug` CMake Preset（`CMakePresets.json`）；
   - 新增 `scripts/build_macos.sh` 一键环境自检 + 配置 + 构建 + 启动脚本；

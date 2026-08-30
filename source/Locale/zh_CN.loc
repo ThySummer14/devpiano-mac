@@ -224,3 +224,9 @@ countries: cn
 "MIDI Transpose:" = "MIDI 移调："
 "Follow Key" = "跟随调号"
 "Channel Follow Key:" = "通道跟随调号："
+
+"No Audio Device" = "无音频设备"
+"Transpose: On" = "移调：开"
+"Saved preset: " = "已保存预设："
+"Deleted preset: " = "已删除预设："
+"Renamed preset to: " = "已重命名预设为："
